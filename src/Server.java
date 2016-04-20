@@ -61,7 +61,7 @@ class Server {
     	short packTypeInShort = byteArrayToShort(packetType);
     	
     	short dataCheckSum =  calculateCheckSum(dataBytes);
-    	//System.out.println(seqNumInInt+" "+checkSumInShort+" "+packTypeInShort+" "+dataCheckSum);
+    	System.out.println(seqNumInInt+" "+checkSumInShort+" "+packTypeInShort+" "+dataCheckSum);
     	boolean isValid = validateData(seqNumInInt, checkSumInShort, packTypeInShort, dataCheckSum);
     	if(isValid) {
     		currentSeqNumber++;
@@ -98,7 +98,9 @@ class Server {
     	
     	DatagramPacket sendPacket = new DatagramPacket(acknowledgement, acknowledgement.length, receivePacket.getAddress(),receivePacket.getPort());
     	try {
-			serverSocket.send(sendPacket);
+    		//if(currentSeqNumber == 2) {
+    			serverSocket.send(sendPacket);
+    		//}
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
