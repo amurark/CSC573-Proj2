@@ -26,7 +26,7 @@ public class GoBackN {
 			
 			sendPacket(clientSocket, IPAddress);//Extra
 			
-	        clientSocket.close();
+	        //clientSocket.close();
 		} catch (SocketException | UnknownHostException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -44,48 +44,47 @@ public class GoBackN {
 		int seqNum;
 		System.arraycopy(sendData, 0, seqNumArr, 0, 4);
 		seqNum = Util.byteArrayToInt(seqNumArr);
-		while(true) {
-			while((windowList.size() < windowSize) && it1.hasNext()) {
-				DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, serverPort);
-		        try {
-		        	Timer t = new Timer();
-		        	Retransmit rt = new Retransmit(clientSocket, IPAddress, windowList, windowSize, seqNum , serverPort);
-                    t.schedule(rt,3000);
-		        	windowList.add(new DatagramSock(seqNum,sendPacket,t));
-		        	System.out.println("trans:   "+seqNum);
-		        	clientSocket.send(sendPacket);
-		        	
-                    
-					sendData = it1.next().getSegmentInBytes();
-					
-					ReceiveAck ra = new ReceiveAck(clientSocket, IPAddress, windowList);
-					ra.start();
-					
-					System.arraycopy(sendData, 0, seqNumArr, 0, 4);
-					seqNum = Util.byteArrayToInt(seqNumArr);
-				} catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}        
-			}
-			
-			if(!it1.hasNext()) {
-				break;
-			}
-			
-		}  
+		while((windowList.size() < windowSize) && it1.hasNext()) {
+			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, serverPort);
+	        try {
+	        	Timer t = new Timer();
+	        	Retransmit rt = new Retransmit(clientSocket, IPAddress, windowList, windowSize, seqNum, serverPort, segmentArray);
+                t.schedule(rt,3000);
+	        	windowList.add(new DatagramSock(seqNum,sendPacket,t));
+	        	System.out.println("trans:   "+seqNum);
+	        	clientSocket.send(sendPacket);
+	        	
+				sendData = it1.next().getSegmentInBytes();
+				
+				
+				System.arraycopy(sendData, 0, seqNumArr, 0, 4);
+				seqNum = Util.byteArrayToInt(seqNumArr);
+				System.out.println(windowList.size());
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}        
+		}
+		ReceiveAck ra = new ReceiveAck(clientSocket, IPAddress, windowList, segmentArray, windowSize, serverPort);
+		ra.start();
 	}
-
 }
 
 class ReceiveAck extends Thread {
 	DatagramSocket clientSocket;
 	InetAddress IPAddress;
 	LinkedList<DatagramSock> windowList;
-	ReceiveAck(DatagramSocket clientSocket, InetAddress IPAddress, LinkedList<DatagramSock> windowList) {
+	List<Segment> segmentArray;
+	int windowSize, serverPort;
+	int lastSequenceNum;
+	int recSeqNum;
+	ReceiveAck(DatagramSocket clientSocket, InetAddress IPAddress, LinkedList<DatagramSock> windowList, List<Segment> segmentArray, int windowSize, int serverPort) {
 		this.clientSocket = clientSocket;
 		this.IPAddress = IPAddress;
 		this.windowList = windowList;
+		this.segmentArray = segmentArray;
+		this.windowSize = windowSize;
+		this.serverPort = serverPort;
 	}
 	
 	@Override
@@ -97,21 +96,54 @@ class ReceiveAck extends Thread {
 			byte[] receivedData = new byte[receivePacket.getLength()];
 			System.arraycopy(receivePacket.getData(), 0, receivedData, 0, receivedData.length);
 			int seqNum = validateAckPacket(receivedData);
-			while(true) {
-				if(windowList.size() > 0) {
-					if(windowList.getFirst().getSeqNum() <= seqNum) {
-						windowList.getFirst().t.cancel();
-						windowList.removeFirst();
-					}
-				} else {
-					break;
-				}
+			recSeqNum = seqNum;
+//			while(true) {
+//				if(windowList.size() > 0) {
+//					if(windowList.getFirst().getSeqNum() <= seqNum) {
+//						windowList.getFirst().t.cancel();
+//						windowList.removeFirst();
+//					}
+//				} else {
+//					break;
+//				}
+//			}
+			System.out.println("removing from list: "+windowList.getFirst().getSeqNum());
+			sendAnotherPacket();
+			windowList.getFirst().t.cancel();
+			windowList.removeFirst();
+			if(windowList.size() == 0) {
+				System.exit(0);
 			}
-			
 			//System.out.println(receivedData[0]+" "+receivedData[1]+" "+receivedData[2]+" "+receivedData[3]+" "+receivedData[4]+" "+receivedData[5]+" "+receivedData[6]+" "+receivedData[7]);
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
+		}
+	}
+	
+	public void sendAnotherPacket() {
+		if(windowList.size() > 0) {
+			DatagramSock ds = windowList.getLast();
+			lastSequenceNum = recSeqNum+windowSize-1;
+			if(lastSequenceNum < segmentArray.size()) {
+				System.out.println(recSeqNum+" "+lastSequenceNum);
+				Segment s = segmentArray.get(lastSequenceNum);
+				byte[] sendData = s.getSegmentInBytes();
+				DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, serverPort);
+		        try {
+		        	Timer t = new Timer();
+		        	Retransmit rt = new Retransmit(clientSocket, IPAddress, windowList, windowSize, (lastSequenceNum) , serverPort, segmentArray);
+	                t.schedule(rt,3000);
+		        	windowList.add(new DatagramSock(lastSequenceNum,sendPacket,t));
+		        	System.out.println("transOne:   "+(lastSequenceNum));
+		        	clientSocket.send(sendPacket);
+					ReceiveAck ra = new ReceiveAck(clientSocket, IPAddress, windowList, segmentArray, windowSize, serverPort);
+					ra.start();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} 
+			}
 		}
 	}
 	
@@ -137,34 +169,35 @@ class Retransmit extends TimerTask {
 	InetAddress IPAddress;
 	LinkedList<DatagramSock> windowList;
 	int windowSize, seqNum, serverPort;
-	Retransmit(DatagramSocket clientSocket, InetAddress IPAddress, LinkedList<DatagramSock> windowList, int windowSize, int seqNum, int serverPort) {
+	List<Segment> segmentArray;
+	Retransmit(DatagramSocket clientSocket, InetAddress IPAddress, LinkedList<DatagramSock> windowList, int windowSize, int seqNum, int serverPort, List<Segment> segmentArray) {
 		this.clientSocket = clientSocket;
 		this.IPAddress = IPAddress;
 		this.windowList = windowList;
 		this.windowSize = windowSize;
 		this.seqNum = seqNum;
 		this.serverPort = serverPort;
+		this.segmentArray = segmentArray;
 	}
 	
 	@Override
 	public void run() {
-		Iterator<DatagramSock> it2 = windowList.iterator();
-		while(it2.hasNext()) {
-			DatagramSock ds = it2.next();
-			if(ds.getSeqNum() >= seqNum) {
-				Timer t = new Timer();
-	        	Retransmit rt = new Retransmit(clientSocket, IPAddress, windowList, windowSize, seqNum , serverPort);
-                t.schedule(rt,3000);  
-                try {
-                	System.out.println("Retrans: "+seqNum);
-    	        	clientSocket.send(ds.packet);
-    				ReceiveAck ra = new ReceiveAck(clientSocket, IPAddress, windowList);
-    				ra.start();
-    			} catch (IOException e) {
-    				// TODO Auto-generated catch block
-    				e.printStackTrace();
-    			}  
-			}
+		if(windowList.size() > 0) {
+			  try {
+				  	DatagramSock ds = windowList.getFirst();
+				  	Timer t = new Timer();
+		        	Retransmit rt = new Retransmit(clientSocket, IPAddress, windowList, windowSize, ds.getSeqNum() , serverPort, segmentArray);
+	                t.schedule(rt,5000);
+	                System.out.println("Retrans: "+ds.getSeqNum());
+		        	clientSocket.send(ds.packet);
+					ReceiveAck ra = new ReceiveAck(clientSocket, IPAddress, windowList, segmentArray, windowSize, serverPort);
+					ra.start();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} 
+		  //}  
+		//}
 		}
 	}
 }
